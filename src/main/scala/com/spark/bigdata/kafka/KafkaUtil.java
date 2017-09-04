@@ -1,6 +1,7 @@
 package com.spark.bigdata.kafka;
 
 import com.spark.bigdata.util.FileReaderUtil;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import java.util.Properties;
@@ -39,13 +40,17 @@ public class KafkaUtil {
             props.put("bootstrap.servers", bootstrapServers);
             props.put("group.id", groupId);
             props.put("enable.auto.commit", "true");
+            /**
+             * Setting enable.auto.commit means that offsets are committed automatically
+             * with a frequency controlled by the config auto.commit.interval.ms.
+             */
             props.put("auto.commit.interval.ms", "1000");
             props.put("session.timeout.ms", "30000");
             props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
             props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
             kc = new KafkaConsumer<String, String>(props);
         }
-
         return kc;
     }
+
 }

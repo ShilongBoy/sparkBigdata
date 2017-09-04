@@ -7,8 +7,11 @@ import org.apache.commons.codec.StringDecoder
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.streaming.{Duration, Seconds, StreamingContext}
 import org.apache.hadoop.conf.Configuration
-import org.apache.spark.SparkConf
+import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.streaming.kafka.{HasOffsetRanges, KafkaUtils}
+import com.spark.bigdata.redis.RedisConfig._
+import com.redislabs.provider.redis._
+import com.spark.bigdata.util.JsonUtil._
 object KafkaOutput {
 
   val checkPotion="/opt/tmp/kafka/sparkCheckopt"
@@ -29,7 +32,6 @@ object KafkaOutput {
     val mapPatis=Map( "metadata.broker.list" -> brokers)
     val conf = globalConf(args)
     conf.setMaster("local[*]")
-    //val messageDstream=KafkaUtils.createDirectStream[StringDecoder,StringDecoder](ssc,)
 
 
   }
@@ -37,6 +39,7 @@ object KafkaOutput {
 
   def createSSC(args:Array[String],topicsSet: Set[String],zkNode:String,confMap: Map[String, String]):StreamingContext={
     val conf=globalConf(args)
+    val sc=new SparkContext(conf)
     val ssc = new StreamingContext(conf, Seconds(args(1).toInt))
     ssc.checkpoint("")
     val fromOffset = TopicOffset(zkNode, confMap).getOffset(topicsSet)
@@ -44,18 +47,25 @@ object KafkaOutput {
     val messages = KafkaUtils.createDirectStream[Array[Byte], String, DefaultDecoder, StringDecoder, (Array[Byte], String)](
       ssc, conf.getAll.toMap, fromOffset, messageHandler)
 
-    messages.transform(rdd=>{
+    val msgRDD=messages.transform(rdd=>{
+      //读取RDD的offset并保存
       val offsetRanges=rdd.asInstanceOf[HasOffsetRanges].offsetRanges
       TopicOffset(zkNode,confMap).saveOffset(offsetRanges)
       rdd
-    }).foreachRDD(x=>{
-     x.foreach{
+    }).mapPartitions(x=>{
+     x.map{
        case(as,ms)=>{
-         println(s"the topic is $as and the ms is $ms")
+         val fakePolicy=readAsBeanByJson4s[FakePolicy](ms)
+         val emid=fakePolicy.emid
+         val clikCount=fakePolicy.clikCount
+         (emid,clikCount)
        }
       }
     })
-
+    //Todo把解析的数据存储到Redis
+    msgRDD.foreachRDD(x=>{
+      sc.toRedisKV(x)
+    })
 
 
   ssc
@@ -85,9 +95,14 @@ object KafkaOutput {
     conf.set("metadata.broker.list", "")
     conf.set("serializer.class", "kafka.serializer.StringEncoder")
     conf.set("key.serializer.class", "kafka.serializer.StringEncoder")
+    <!-- redis-->
+    conf.set("redis.host","localhost")
+    conf.set("redis.prot","6379")
   }
 
 
+
+  case class FakePolicy(emid:String,clikCount:String)
 
 
 }
