@@ -31,6 +31,9 @@ object HBaseBulkPutExample {
         val tb=hbaseTB(rowKey,columnFamily,qualiter,values)
         tb
       })
+
+      val parmMap=Map("name"->"Otpion","SFO"->"san fan")
+
       val hbaseContext = new HBaseContext(sc,getConf())
       //Hbase 批量写入
       hbaseContext.bulkPut[hbaseTB](rs.rdd,
