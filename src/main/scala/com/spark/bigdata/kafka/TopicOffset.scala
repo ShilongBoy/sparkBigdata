@@ -131,7 +131,6 @@ case class TopicOffset(kafkaSavePath: String, conf: Map[String, String]) extends
       })
 
     val produer=new KafkaProducer[String,String](properties)
-    val prodcuer=new ProducerConfig(properties)
 
     val record=new ProducerRecord[String,String]("","")
     produer.send(record)

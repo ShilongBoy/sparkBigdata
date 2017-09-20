@@ -5,7 +5,7 @@ import kafka.message.MessageAndMetadata
 import kafka.serializer.DefaultDecoder
 import org.apache.commons.codec.StringDecoder
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.streaming.{Duration, Seconds, StreamingContext}
+import org.apache.spark.streaming._
 import org.apache.hadoop.conf.Configuration
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.streaming.kafka.{HasOffsetRanges, KafkaUtils}
@@ -33,9 +33,7 @@ object KafkaOutput {
     val conf = globalConf(args)
     conf.setMaster("local[*]")
 
-
   }
-
 
   def createSSC(args:Array[String],topicsSet: Set[String],zkNode:String,confMap: Map[String, String]):StreamingContext={
     val conf=globalConf(args)
@@ -46,6 +44,14 @@ object KafkaOutput {
     val messageHandler = (mmd: MessageAndMetadata[Array[Byte], String]) => (mmd.key, mmd.message)
     val messages = KafkaUtils.createDirectStream[Array[Byte], String, DefaultDecoder, StringDecoder, (Array[Byte], String)](
       ssc, conf.getAll.toMap, fromOffset, messageHandler)
+
+    val initialRDD = ssc.sparkContext.parallelize(List[(String, Int)]())
+    val mappingFunc = (word: String, count: Option[Int], state: State[Int]) => {
+      val sum = count.getOrElse(0) + state.getOption.getOrElse(0)
+      val output = (word, sum)
+      state.update(sum)
+      output
+    }
 
     val msgRDD=messages.transform(rdd=>{
       //读取RDD的offset并保存
@@ -58,16 +64,19 @@ object KafkaOutput {
          val fakePolicy=readAsBeanByJson4s[FakePolicy](ms)
          val emid=fakePolicy.emid
          val clikCount=fakePolicy.clikCount
-         (emid,clikCount)
+         (emid,clikCount.toInt)
        }
       }
     })
+
+    //全局状态进行相加
+    val upStateMSRDD=msgRDD.mapWithState(StateSpec.function(mappingFunc).initialState(initialRDD))
+
     //Todo把解析的数据存储到Redis
-    msgRDD.foreachRDD(x=>{
-      sc.toRedisKV(x)
+      upStateMSRDD.foreachRDD(x=>{
+        val saveRedisRDD=x.map(y=>(y._1,y._2.toString))
+      sc.toRedisKV(saveRedisRDD)
     })
-
-
   ssc
 
   }
